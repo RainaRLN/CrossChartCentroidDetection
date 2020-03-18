@@ -2,8 +2,9 @@
 #include <opencv2/highgui.hpp>
 #include <opencv2/core.hpp>
 #include <opencv2/imgproc.hpp>
-#include<iostream>
-#include<math.h>
+#include <iostream>
+#include <math.h>
+#include <numeric>
 using namespace cv;
 using namespace std;
 
@@ -11,45 +12,65 @@ using namespace std;
 #define HEIGHT 4512
 #define ANGLE 1
 
-Point get_centroid(Mat gray)
+void get_centroid(Mat gray, Point2f &centroid)
 {
 	// namedWindow("gray", 0);
 	// imshow("gray", gray);
 
 	Mat binary;
 	threshold(gray, binary, 80, 255, THRESH_BINARY);
-	namedWindow("Binary", 0);
-	imshow("Binary", binary);
-	Mat src;
-	Canny(binary, src, 3, 60, 3);
-	convertScaleAbs(src, src);
-	// namedWindow("Canny", 0);
-	// imshow("Canny", src);
+	// namedWindow("Binary", 0);
+	// imshow("Binary", binary);
+	blur(binary, binary, Size(3, 3));
 
-	int height = src.rows;
-	int width = src.cols;
+	vector<float> x1_cluster;
+	vector<float> x2_cluster;
+	vector<float> y1_cluster;
+	vector<float> y2_cluster;
 
-	Mat sum_row;
-	Mat sum_col;
+	for (int row = (HEIGHT/4); row < (HEIGHT/3); row += HEIGHT/120) {
+		int col = 0;
+		while(binary.at<uchar>(row, col++) == 0);
+		x1_cluster.push_back(col-1);
+		// circle(gray, Point(col-1, row), 5, Scalar(255, 255, 255), -1);
+		while(binary.at<uchar>(row, col++) > 0);
+		x1_cluster.push_back(col-1);
+		// circle(gray, Point(col-1, row), 5, Scalar(255, 255, 255), -1);
+	}
+	for (int row = (HEIGHT*2/3); row < (HEIGHT*3/4); row += HEIGHT/120) {
+		int col = 0;
+		while(binary.at<uchar>(row, col++) == 0);
+		x2_cluster.push_back(col-1);
+		// circle(gray, Point(col-1, row), 5, Scalar(255, 255, 255), -1);
+		while(binary.at<uchar>(row, col++) > 0);
+		x2_cluster.push_back(col-1);
+		// circle(gray, Point(col-1, row), 5, Scalar(255, 255, 255), -1);
+	}
+	for (int col = (WIDTH/4); col < (WIDTH/3); col += WIDTH/120) {
+		int row = 0;
+		while(binary.at<uchar>(row++, col) == 0);
+		y1_cluster.push_back(row-1);
+		// circle(gray, Point(col, row-1), 5, Scalar(255, 255, 255), -1);
+		while(binary.at<uchar>(row++, col) > 0);
+		y1_cluster.push_back(row-1);
+		// circle(gray, Point(col, row-1), 5, Scalar(255, 255, 255), -1);
+	}
+	for (int col = (WIDTH*2/3); col < (WIDTH*3/4); col += WIDTH/120) {
+		int row = 0;
+		while(binary.at<uchar>(row++, col) == 0);
+		y2_cluster.push_back(row-1);
+		// circle(gray, Point(col, row-1), 5, Scalar(255, 255, 255), -1);
+		while(binary.at<uchar>(row++, col) > 0);
+		y2_cluster.push_back(row-1);
+		// circle(gray, Point(col, row-1), 5, Scalar(255, 255, 255), -1);
+	}
 
-	reduce(src, sum_row, 1, 0, CV_32S);
-	reduce(src, sum_col, 0, 0, CV_32S);
+	float x1 = static_cast<float>(accumulate(x1_cluster.begin(), x1_cluster.end(), 0)) / static_cast<float>(x1_cluster.size());
+	float x2 = static_cast<float>(accumulate(x2_cluster.begin(), x2_cluster.end(), 0)) / static_cast<float>(x2_cluster.size());
+	float y1 = static_cast<float>(accumulate(y1_cluster.begin(), y1_cluster.end(), 0)) / static_cast<float>(y1_cluster.size());
+	float y2 = static_cast<float>(accumulate(y2_cluster.begin(), y2_cluster.end(), 0)) / static_cast<float>(y2_cluster.size());
 
-	Point x1, x2, y1, y2;
-
-	minMaxLoc(sum_row, nullptr, nullptr, nullptr, &y1);
-	minMaxLoc(sum_col, nullptr, nullptr, nullptr, &x1);
-
-	sum_row.at<float>(y1.y, 0) = 0;
-	sum_col.at<float>(0, x1.x) = 0;
-
-
-	minMaxLoc(sum_row, nullptr, nullptr, nullptr, &y2);
-	minMaxLoc(sum_col, nullptr, nullptr, nullptr, &x2);
-
-	int x = (x1.x + x2.x) / 2;
-	int y = (y1.y + y2.y) / 2;
-	return Point(x, y);
+	centroid = Point2f((x1+x2)/2.0, (y1+y2)/2.0);
 
 }
 
@@ -77,37 +98,16 @@ void read_raw(const char * filename, int width, int height, Mat &raw_pic)
 int main()
 {
 	Mat origin;
-	read_raw("pics/2.raw", WIDTH, HEIGHT, origin);
+	read_raw("pics/3.raw", WIDTH, HEIGHT, origin);
 
-	// 旋转矩阵
-	Mat M = getRotationMatrix2D(Point(WIDTH/2, HEIGHT/2), ANGLE, 1);
-
-	Mat temp;
-	warpAffine(origin, temp, M, Size(WIDTH, HEIGHT));
-
-	Point p = get_centroid(temp);  // 旋转后的中心
-	circle(temp, p, 5, Scalar(255, 255, 255), -1);
-	// namedWindow("Temp", 0);
-	// imshow("Temp", temp);
-	
-
-	// 求原坐标
-	cv::Point centroid;
-	p.x -= M.at<double>(0,2);
-	p.y -= M.at<double>(1,2);
-
-	// 逆矩阵
-	Mat M_inverse(M, Rect(0,0,2,2)); 
-	invert(M_inverse, M_inverse);
-
-    centroid.x = M_inverse.at<double>(0,0) * p.x + M_inverse.at<double>(0,1) * p.y;
-    centroid.y = M_inverse.at<double>(1,0) * p.x + M_inverse.at<double>(1,1) * p.y;
-	cout << centroid.x << " " << centroid.y << endl;
+	Point2f centroid;
+	get_centroid(origin, centroid);
+	cout << centroid << endl;
 
 	// 在图中标注中心和坐标
-	char x_y[13];
+	char x_y[30];
 	circle(origin, centroid, 5, Scalar(255, 255, 255), -1);
-	sprintf(x_y, "(%4d, %4d)", centroid.x, centroid.y);
+	sprintf(x_y, "(%4.3f, %4.3f)", centroid.x, centroid.y);
 	putText(origin, x_y, Point(centroid.x+40, centroid.y-40), FONT_HERSHEY_PLAIN, 5, Scalar(255, 255, 255), 4);
 	
 	namedWindow("Result", 0);
